@@ -41,10 +41,10 @@ struct worker_args {
 
 // Compare two hashes stored as 32-character hexadecimal strings.
 int compare_hashes(char *a, char *b) {
-	for(int i=0; i < 2*KEEP; i++)
-		if(a[i] != b[i])
-			return 0;
-	return 1;
+    for(int i=0; i < 2*KEEP; i++)
+        if(a[i] != b[i])
+            return 0;
+    return 1;
 }
 
 
@@ -75,7 +75,7 @@ char **load_passwords(const char *filename, char **file_data, size_t *n_password
         if (data[i] == '\n') {
             in_password = 0;
         }
-		else if (!in_password) {
+        else if (!in_password) {
             count++;
             in_password = 1;
         }
@@ -94,7 +94,7 @@ char **load_passwords(const char *filename, char **file_data, size_t *n_password
     while (cursor < end) {
         while (cursor < end && *cursor == '\n') {
             *cursor++ = '\0';
-		}
+        }
 
         if (cursor == end)
             break;
@@ -102,7 +102,7 @@ char **load_passwords(const char *filename, char **file_data, size_t *n_password
         passwords[next++] = cursor;
         while (cursor < end && *cursor != '\n') {
             cursor++;
-		}
+        }
     }
 
     // Return both the pointer list and its backing buffer to the caller
@@ -133,7 +133,7 @@ void *crack_range(void *argument) {
             // Convert each byte into two hexadecimal characters
             for (int i = 0; i < KEEP; i++) {
                 sprintf(&hex_hash[2 * i], "%02x", hash[i]);
-			}
+            }
 
             // Terminate the hexadecimal hash so it can be used as a C string
             hex_hash[2 * KEEP] = '\0';
@@ -166,20 +166,20 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
 
     // load hashed passwords
     int n_hashed = 0;
-	struct cracked_hash *cracked_hashes;
-	fp = fopen(hashed_list, "r");
-	assert(fp != NULL);
-	while(fscanf(fp, "%s", hex_hash) == 1)
-		n_hashed++;
-	rewind(fp);
-	cracked_hashes = (struct cracked_hash *) malloc(n_hashed*sizeof(struct cracked_hash));
-	assert(cracked_hashes != NULL);
-	for(int i=0; i < n_hashed; i++) {
-		fscanf(fp, "%s", cracked_hashes[i].hash);
-		cracked_hashes[i].password = NULL;
-		cracked_hashes[i].alg = NULL;
-	}
-	fclose(fp);
+    struct cracked_hash *cracked_hashes;
+    fp = fopen(hashed_list, "r");
+    assert(fp != NULL);
+    while(fscanf(fp, "%s", hex_hash) == 1)
+        n_hashed++;
+    rewind(fp);
+    cracked_hashes = (struct cracked_hash *) malloc(n_hashed*sizeof(struct cracked_hash));
+    assert(cracked_hashes != NULL);
+    for(int i=0; i < n_hashed; i++) {
+        fscanf(fp, "%s", cracked_hashes[i].hash);
+        cracked_hashes[i].password = NULL;
+        cracked_hashes[i].alg = NULL;
+    }
+    fclose(fp);
 
     // Load passwords before starting workers so they can read disjoint ranges
     char *password_data;
@@ -247,16 +247,16 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
         }
     }
 
-	// print results
+    // print results
     fp = fopen(output, "w");
-	assert(fp != NULL);
-	for(int i=0; i < n_hashed; i++) {
-		if(cracked_hashes[i].password ==  NULL)
-			fprintf(fp, "not found\n");
-		else
-			fprintf(fp, "%s:%s\n", cracked_hashes[i].password, cracked_hashes[i].alg);
-	}
-	fclose(fp);
+    assert(fp != NULL);
+    for(int i=0; i < n_hashed; i++) {
+        if(cracked_hashes[i].password ==  NULL)
+            fprintf(fp, "not found\n");
+        else
+            fprintf(fp, "%s:%s\n", cracked_hashes[i].password, cracked_hashes[i].alg);
+    }
+    fclose(fp);
 
     free(all_algs);
     free(all_indices);
