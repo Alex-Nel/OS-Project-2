@@ -1,6 +1,6 @@
-// Group:       TODO - enter your group
-// Authors:     TODO - enter author names
-// NetIDs:      TODO - enter NetIDs
+// Group: 21
+// Authors: Alex Nelson, Jose Contreras-Perez, Julio Chavez, Wyatt Jones
+// NetIDs: alexn1@usf.edu | josec40@usf.edu | julioc10@usf.edu | wyattj1@usf.edu
 // Description: Cracks a list of hashes in parallel while preserving the first matching password from the input file.
 
 
@@ -193,13 +193,14 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
     size_t *all_indices = NULL;
     int *all_algs = NULL;
     if (worker_count != 0 && n_hashed != 0) {
-        // A sentinel index marks targets that a worker did not find
+        // An index marks targets that a worker did not find
         size_t result_count = (size_t)worker_count * (size_t)n_hashed;
         all_indices = malloc(result_count * sizeof(*all_indices));
         all_algs = malloc(result_count * sizeof(*all_algs));
         assert(all_indices != NULL && all_algs != NULL);
-        for (size_t i = 0; i < result_count; i++)
+        for (size_t i = 0; i < result_count; i++) {
             all_indices[i] = (size_t)-1;
+        }
 
         // Divide the ordered password list evenly and launch each worker
         for (int i = 0; i < worker_count; i++) {
@@ -222,7 +223,7 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
 
         // Select the globally earliest match, preserving sequential behavior
         for (int target = 0; target < n_hashed; target++) {
-            // Begin with a sentinel indicating that no worker found this target
+            // Begin with a index indicating that no worker found this target
             size_t best_index = (size_t)-1;
             int best_alg = 0;
 
