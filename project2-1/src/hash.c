@@ -15,11 +15,11 @@
 
 #define KEEP 16 // only the first 16 bytes of a hash are kept
 #define N_ALGS 4
-#define MAX_WORKERS 7
+#define MAX_WORKERS 10
 
 
 struct cracked_hash {
-    char hash[2*KEEP+1];
+    unsigned char hash[KEEP];
     char *password, *alg;
 };
 
@@ -36,15 +36,37 @@ struct worker_args {
     int n_hashed;
     size_t *match_indices;
     int *match_algs;
+    int *bucket_heads;
+    int *next_target;
 };
 
 
-// Compare two hashes stored as 32-character hexadecimal strings.
-int compare_hashes(char *a, char *b) {
-    for(int i=0; i < 2*KEEP; i++)
+// Compare two hashes stored as raw bytes.
+int compare_hashes(unsigned char *a, unsigned char *b) {
+    for(int i=0; i < KEEP; i++)
         if(a[i] != b[i])
             return 0;
     return 1;
+}
+
+
+// Convert one hexadecimal character to its numeric value.
+unsigned char hex_value(char digit) {
+    if (digit >= '0' && digit <= '9')
+        return (unsigned char)(digit - '0');
+
+    if (digit >= 'a' && digit <= 'f')
+        return (unsigned char)(digit - 'a' + 10);
+    
+    return (unsigned char)(digit - 'A' + 10);
+}
+
+
+// Decode a 32-character hexadecimal hash into 16 raw bytes.
+void decode_hash(char *hex_hash, unsigned char *hash) {
+    for (int i = 0; i < KEEP; i++) {
+        hash[i] = (unsigned char)((hex_value(hex_hash[2*i]) << 4) | hex_value(hex_hash[2*i+1]));
+    }
 }
 
 
@@ -122,33 +144,26 @@ void *crack_range(void *argument) {
     for (size_t password_index = args->start; password_index < args->end; password_index++) {
         char *password = args->passwords[password_index];
         unsigned int length = (unsigned int)strlen(password);
-        char hex_hash[2 * KEEP + 1];
 
-        // Compute each supported hash and convert its bytes to hexadecimal
+        // Compute each supported hash as raw bytes
         for (int alg = 0; alg < N_ALGS; alg++) {
             // Call the current hash function using the password and its length
             unsigned char *hash = fn[alg]((unsigned char *)password, length);
             assert(hash != NULL);
 
-            // Convert each byte into two hexadecimal characters
-            for (int i = 0; i < KEEP; i++) {
-                sprintf(&hex_hash[2 * i], "%02x", hash[i]);
-            }
-
-            // Terminate the hexadecimal hash so it can be used as a C string
-            hex_hash[2 * KEEP] = '\0';
-
-            // Record the first match found by this worker for each target hash
-            for (int target = 0; target < args->n_hashed; target++) {
+            // Only inspect targets whose first byte matches the computed hash
+            int target = args->bucket_heads[hash[0]];
+            while (target != -1) {
                 // Skip targets that this worker already matched earlier
-                if (args->match_indices[target] != (size_t)-1)
-                    continue;
-
-                // When a hash matches, save both the password position and algorithm used
-                if (compare_hashes(hex_hash, args->cracked_hashes[target].hash)) {
+                if (args->match_indices[target] == (size_t)-1 &&
+                    compare_hashes(hash, args->cracked_hashes[target].hash)) {
+                    // Save both the password position and algorithm used
                     args->match_indices[target] = password_index;
                     args->match_algs[target] = alg;
                 }
+
+                // Move to the next target in this bucket
+                target = args->next_target[target];
             }
 
             // The hash functions allocate a new digest for every calculation
@@ -164,22 +179,41 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
     FILE *fp;
     char hex_hash[2*KEEP+1]; // hashed passwords have at most 'keep' characters
 
-    // load hashed passwords
+    // Load and count the hexadecimal target hashes
     int n_hashed = 0;
     struct cracked_hash *cracked_hashes;
     fp = fopen(hashed_list, "r");
     assert(fp != NULL);
-    while(fscanf(fp, "%s", hex_hash) == 1)
+    while(fscanf(fp, "%32s", hex_hash) == 1)
         n_hashed++;
     rewind(fp);
     cracked_hashes = (struct cracked_hash *) malloc(n_hashed*sizeof(struct cracked_hash));
     assert(cracked_hashes != NULL);
+
+    // Decode each target once so workers can compare raw bytes directly
     for(int i=0; i < n_hashed; i++) {
-        fscanf(fp, "%s", cracked_hashes[i].hash);
+        fscanf(fp, "%32s", hex_hash);
+        decode_hash(hex_hash, cracked_hashes[i].hash);
         cracked_hashes[i].password = NULL;
         cracked_hashes[i].alg = NULL;
     }
     fclose(fp);
+
+    // Group target indices by their first byte to avoid checking every target
+    int bucket_heads[256];
+    int *next_target = NULL;
+    for (int i = 0; i < 256; i++) {
+        bucket_heads[i] = -1;
+    }
+    if (n_hashed != 0) {
+        next_target = malloc((size_t)n_hashed * sizeof(*next_target));
+        assert(next_target != NULL);
+        for (int target = 0; target < n_hashed; target++) {
+            unsigned int bucket = cracked_hashes[target].hash[0];
+            next_target[target] = bucket_heads[bucket];
+            bucket_heads[bucket] = target;
+        }
+    }
 
     // Load passwords before starting workers so they can read disjoint ranges
     char *password_data;
@@ -211,6 +245,8 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
             args[i].n_hashed = n_hashed;
             args[i].match_indices = all_indices + (size_t)i * n_hashed;
             args[i].match_algs = all_algs + (size_t)i * n_hashed;
+            args[i].bucket_heads = bucket_heads;
+            args[i].next_target = next_target;
             int status = pthread_create(&workers[i], NULL, crack_range, &args[i]);
             assert(status == 0);
         }
@@ -260,6 +296,7 @@ void crack_hashed_passwords(char *password_list, char *hashed_list, char *output
 
     free(all_algs);
     free(all_indices);
+    free(next_target);
     free(passwords);
     free(password_data);
     free(cracked_hashes);
